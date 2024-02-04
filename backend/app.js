@@ -42,51 +42,74 @@ app.get("/api/login", cors(corsOption), (request, response) => {
   );
 });
 
-app.get("/callback", (req, res) => {
-  let code = req.query.code || null;
-  let authOptions = {
-    url: "https://accounts.spotify.com/api/token",
-    form: {
-      code: code,
-      redirect_uri: config.REDIRECT_URI,
-      grant_type: "authorization_code",
-    },
-    headers: {
-      Authorization:
-        "Basic " +
-        new Buffer(config.CLIENT_ID + ":" + config.CLIENT_SECRET).toString("base64"),
-    },
-    json: true,
-  };
+app.get("/callback", async (req, res) => {
+  try {
+    let code = req.query.code || null;
+    let authOptions = {
+      url: "https://accounts.spotify.com/api/token",
+      form: {
+        code: code,
+        redirect_uri: config.REDIRECT_URI,
+        grant_type: "authorization_code",
+      },
+      headers: {
+        Authorization:
+          "Basic " +
+          Buffer.from(config.CLIENT_ID + ":" + config.CLIENT_SECRET).toString("base64"),
+      },
+      json: true,
+    };
 
-  request.post(authOptions, (error, response, body) => {
-    if (!error && response.statusCode === 200) {
-      let access_token = body.access_token;
-      console.log("Access Token:", access_token);
-      accessToken = access_token
-      res.send("Success! Check console for the access token.");
-    } else {
-      res.send("Failed to retrieve access token. Check console for details.");
-      console.error(body);
-    }
-  });
+    // Request for access token
+    let response = await new Promise((resolve, reject) => {
+      request.post(authOptions, (error, response, body) => {
+        if (error || response.statusCode !== 200) {
+          reject(error || body);
+        } else {
+          resolve(body);
+        }
+      });
+    });
 
-  //get userId
-var options = {
-  url: "https://api.spotify.com/v1/me",
-  headers: {
-    Authorization:
-      `Bearer ${accessToken}`
-  },
-  json: true,
-};
+    let access_token = response.access_token;
+    accessToken = access_token
+    console.log("Access Token:", accessToken);
+    
+    // Request for user ID using the obtained access token
+    let options = {
+      url: "https://api.spotify.com/v1/me",
+      headers: {
+        Authorization: `Bearer ${access_token}`,
+      },
+      json: true,
+    };
 
-request.get(options, function (error, response, body) {
-  userID = body.id;
-  console.log(userID)
+    response = await new Promise((resolve, reject) => {
+      request.get(options, (error, response, body) => {
+        if (error || response.statusCode !== 200) {
+          reject(error || body);
+        } else {
+          resolve(body);
+        }
+      });
+    });
+
+    let userID = response.id;
+    console.log("User ID:", userID);
+    
+    res.send("Success! Check console for the access token and user ID.");
+  } catch (error) {
+    res.send("Failed to retrieve access token or user ID. Check console for details.");
+    console.error(error);
+  }
 });
 
-});
+app.post('api/setAccessToken', (req, res) => {
+  console.log('Setting access token')
+  accessToken = req.body.accessToken
+  console.log(accessToken)
+})
+
 
 // Connect to MongoDB using the Atlas URI
 mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
