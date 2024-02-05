@@ -4,6 +4,7 @@ const request = require('request');
 const mongoose = require('mongoose');
 const config = require('./config.env');
 const axios = require('axios');
+const { Profile, profileRoutes } = require('./profile');
 
 const app = express();
 const port = config.PORT || 3001;
@@ -11,7 +12,8 @@ const port = config.PORT || 3001;
 app.use(express.json());
 app.use(cors());
 
-app.use(require("./profile"));
+// Use the profile routes
+app.use(profileRoutes);
 
 const uri = config.URI;
 var accessToken = "";
@@ -105,6 +107,21 @@ app.get("/callback", async (req, res) => {
 
     favouriteArtists = await getLikedArtists();
     console.log(favouriteArtists);
+
+    const mergedArtists = [...new Set([...topArtists, ...favouriteArtists])];
+    console.log(mergedArtists);
+
+    // Update the user profile with mergedArtists
+    const updatedProfile = await Profile.findOneAndUpdate(
+      { spotifyUsername: userID },
+      {
+        $set: {}, // Set other fields if needed
+        $addToSet: { topArtists: { $each: mergedArtists } },
+      },
+      { new: true, upsert: true }
+    );
+
+    console.log("Updated Profile:", updatedProfile);
     
     res.send("Success! Check console for the access token and user ID.");
   } catch (error) {

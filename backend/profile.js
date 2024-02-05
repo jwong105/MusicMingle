@@ -120,5 +120,5 @@ profileRoutes.route("/:spotifyUsername").delete(async (req, res) => {
   }
 });
 
-// Export the profileRoutes
-module.exports = profileRoutes;
+// Export both the Profile model and the profileRoutes
+module.exports = { Profile, profileRoutes };
