@@ -3,6 +3,7 @@ const cors = require('cors');
 const request = require('request');
 const mongoose = require('mongoose');
 const config = require('./config.env');
+const axios = require('axios');
 
 const app = express();
 const port = config.PORT || 3001;
@@ -15,6 +16,8 @@ app.use(require("./profile"));
 const uri = config.URI;
 var accessToken = "";
 var userID;
+var topArtists;
+var favouriteArtists;
 
 // APIS
 app.get("/", (req, res) => {
@@ -29,7 +32,7 @@ var corsOption = {
 app.get("/api/login", cors(corsOption), (request, response) => {
   
   let scope =
-    "user-read-private user-read-email user-library-read user-top-read user-read-recently-played playlist-modify-public playlist-modify-private";
+    "user-read-private user-follow-read user-read-email user-library-read user-top-read user-read-recently-played";
   response.redirect(
     "https://accounts.spotify.com/authorize" +
       "?response_type=code" +
@@ -61,7 +64,7 @@ app.get("/callback", async (req, res) => {
     };
 
     // Request for access token
-    let response = await new Promise((resolve, reject) => {
+    let tokenResponse = await new Promise((resolve, reject) => {
       request.post(authOptions, (error, response, body) => {
         if (error || response.statusCode !== 200) {
           reject(error || body);
@@ -71,8 +74,8 @@ app.get("/callback", async (req, res) => {
       });
     });
 
-    let access_token = response.access_token;
-    accessToken = access_token
+    let access_token = tokenResponse.access_token;
+    accessToken = access_token;
     console.log("Access Token:", accessToken);
     
     // Request for user ID using the obtained access token
@@ -94,8 +97,14 @@ app.get("/callback", async (req, res) => {
       });
     });
 
-    let userID = response.id;
+    userID = response.id;
     console.log("User ID:", userID);
+
+    topArtists = await getTopArtists();
+    console.log(topArtists);
+
+    favouriteArtists = await getLikedArtists();
+    console.log(favouriteArtists);
     
     res.send("Success! Check console for the access token and user ID.");
   } catch (error) {
@@ -104,12 +113,50 @@ app.get("/callback", async (req, res) => {
   }
 });
 
-app.post('api/setAccessToken', (req, res) => {
-  console.log('Setting access token')
-  accessToken = req.body.accessToken
-  console.log(accessToken)
-})
+async function getLikedArtists() {
+  try {
+    // Request for liked artists using the obtained access token
+    let likedArtistsResponse = await axios.get("https://api.spotify.com/v1/me/following?type=artist&limit=50", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
 
+    // Check if 'artists.items' property exists in the response
+    if (likedArtistsResponse.data.artists && likedArtistsResponse.data.artists.items && Array.isArray(likedArtistsResponse.data.artists.items)) {
+      // Extract artist names from the response
+      let likedArtistsNames = likedArtistsResponse.data.artists.items.map(artist => artist.name);
+
+      return likedArtistsNames;
+    } else {
+      console.error('Error getting liked artists: Unexpected response format', likedArtistsResponse.data);
+      throw new Error('Unexpected response format');
+    }
+  } catch (error) {
+    console.error('Error getting liked artists:', error.response ? error.response.data : error.message);
+    throw error;
+  }
+}
+
+// Retrieve top artists from last 6 months (time_range=medium_term)
+async function getTopArtists() {
+  try {
+    // Request for top artists using the obtained access token
+    let topArtistsResponse = await axios.get("https://api.spotify.com/v1/me/top/artists?limit=30", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    // Extract artist names from the response
+    let topArtistsNames = topArtistsResponse.data.items.map(artist => artist.name);
+
+    return topArtistsNames;
+  } catch (error) {
+    console.error('Error getting top artists:', error.response ? error.response.data : error.message);
+    throw error;
+  }
+}
 
 // Connect to MongoDB using the Atlas URI
 mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
