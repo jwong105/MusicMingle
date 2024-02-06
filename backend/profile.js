@@ -7,10 +7,13 @@ const profileRoutes = express.Router();
 
 // Define the profile schema
 const profileSchema = new mongoose.Schema({
-  // Define the primary key to be Spotify Username
-  spotifyUsername: {
+  email: {
     type: String,
     required: true,
+    unique: true,
+  },
+  spotifyUsername: {
+    type: String,
     unique: true,
   },
   name: {
@@ -30,6 +33,8 @@ const profileSchema = new mongoose.Schema({
     required: true,
   },
   topArtists: [String],
+  topGenres: [String],
+  description: {type: String},
 });
 
 // Create the Profile model based on the schema
@@ -48,10 +53,15 @@ profileRoutes.route('/profile').get(async function(req, res) {
   }
 });
 
-// Route to get a single profile by spotify id
-profileRoutes.route("/profile/:spotifyUsername").get(async function (req, res) {
+// Route to get a single profile by id
+profileRoutes.route("/profile/:id").get(async function (req, res) {
   try {
-    const result = await Profile.findOne({ spotifyUsername: req.params.spotifyUsername });
+    const result = await Profile.findById(req.params.id);
+    
+    if (!result) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
     res.json(result);
   } catch (err) {
     console.error(err);
@@ -64,12 +74,15 @@ profileRoutes.route("/profile/add").post(async function (req, res) {
   try {
     console.log(req.body)
     const newRecord = await Profile.create({
+      email: req.body.email,
       spotifyUsername: req.body.spotifyUsername,
       name: req.body.name,
       discordUsername: req.body.discordUsername,
       city: req.body.city,
       country: req.body.country,
       topArtists: req.body.topArtists,
+      topGenres: req.body.topGenres,
+      description: req.body.description,
     });
 
     res.json(newRecord);
@@ -79,18 +92,22 @@ profileRoutes.route("/profile/add").post(async function (req, res) {
   }
 });
 
-// Route to update a profile by spotify id
-profileRoutes.route("/update/:spotifyUsername").post(async function (req, res) {
+// Route to update a profile by id
+profileRoutes.route("/update/:id").post(async function (req, res) {
   try {
-    const result = await Profile.findOneAndUpdate(
-      { spotifyUsername: req.params.spotifyUsername },
+    const result = await Profile.findByIdAndUpdate(
+      req.params.id,
       {
         $set: {
+          email: req.body.email,
+          spotifyUsername: req.body.spotifyUsername,
           name: req.body.name,
           discordUsername: req.body.discordUsername,
           city: req.body.city,
           country: req.body.country,
           topArtists: req.body.topArtists,
+          topGenres: req.body.topGenres,
+          description: req.body.description,
         },
       },
       { new: true } // Return the updated document
@@ -108,10 +125,15 @@ profileRoutes.route("/update/:spotifyUsername").post(async function (req, res) {
   }
 });
 
-// Route to delete a profile by spotify id
-profileRoutes.route("/:spotifyUsername").delete(async (req, res) => {
+// Route to delete a profile by id
+profileRoutes.route("/:id").delete(async (req, res) => {
   try {
-    const result = await Profile.findOneAndDelete({ spotifyUsername: req.params.spotifyUsername });
+    const result = await Profile.findByIdAndDelete(req.params.id);
+
+    if (!result) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
     console.log("1 document deleted");
     res.json(result);
   } catch (err) {

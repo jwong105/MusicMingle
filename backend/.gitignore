@@ -1,2 +1,2 @@
-# Ignore config.env file
-config.env
+# Ignore .env
+.env

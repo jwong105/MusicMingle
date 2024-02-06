@@ -2,12 +2,13 @@ const express = require("express");
 const cors = require('cors');
 const request = require('request');
 const mongoose = require('mongoose');
-const config = require('./config.env');
 const axios = require('axios');
 const { Profile, profileRoutes } = require('./profile');
+require('dotenv').config();
+const { OpenAI } = require('openai');
 
 const app = express();
-const port = config.PORT || 3001;
+const port = process.env.PORT || 3001;
 
 app.use(express.json());
 app.use(cors());
@@ -15,11 +16,11 @@ app.use(cors());
 // Use the profile routes
 app.use(profileRoutes);
 
-const uri = config.URI;
+const uri = process.env.URI;
 var accessToken = "";
-var userID;
-var topArtists;
-var favouriteArtists;
+
+// set up client key
+const openai = new OpenAI({apiKey:'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'});
 
 // APIS
 app.get("/", (req, res) => {
@@ -39,11 +40,11 @@ app.get("/api/login", cors(corsOption), (request, response) => {
     "https://accounts.spotify.com/authorize" +
       "?response_type=code" +
       "&client_id=" +
-      config.CLIENT_ID +
+      process.env.CLIENT_ID +
       "&scope=" +
       encodeURIComponent(scope) +
       "&redirect_uri=" +
-      encodeURIComponent(config.REDIRECT_URI)
+      encodeURIComponent(process.env.REDIRECT_URI)
   );
 });
 
@@ -54,13 +55,13 @@ app.get("/callback", async (req, res) => {
       url: "https://accounts.spotify.com/api/token",
       form: {
         code: code,
-        redirect_uri: config.REDIRECT_URI,
+        redirect_uri: process.env.REDIRECT_URI,
         grant_type: "authorization_code",
       },
       headers: {
         Authorization:
           "Basic " +
-          Buffer.from(config.CLIENT_ID + ":" + config.CLIENT_SECRET).toString("base64"),
+          Buffer.from(process.env.CLIENT_ID + ":" + process.env.CLIENT_SECRET).toString("base64"),
       },
       json: true,
     };
@@ -99,24 +100,41 @@ app.get("/callback", async (req, res) => {
       });
     });
 
-    userID = response.id;
+    const userID = response.id;
     console.log("User ID:", userID);
 
-    topArtists = await getTopArtists();
-    console.log(topArtists);
+    const userEmail = response.email;
+    console.log(userEmail);
 
-    favouriteArtists = await getLikedArtists();
-    console.log(favouriteArtists);
+    const topArtists = await getTopArtists();
+    // console.log(topArtists);
+
+    const favouriteArtists = await getLikedArtists();
+    // console.log(favouriteArtists);
+
+    const topGenres = await getTopGenres();
+    // console.log(topGenres);
 
     const mergedArtists = [...new Set([...topArtists, ...favouriteArtists])];
-    console.log(mergedArtists);
+    // console.log(mergedArtists);
+
+    const userDescription = await getProfileDescription(topGenres, mergedArtists);
+    // console.log(description);
+
+    console.log(await Profile.findOne({ email: userEmail }));
 
     // Update the user profile with mergedArtists
     const updatedProfile = await Profile.findOneAndUpdate(
-      { spotifyUsername: userID },
+      { email: userEmail },
       {
-        $set: {}, // Set other fields if needed
-        $addToSet: { topArtists: { $each: mergedArtists } },
+        $set: {
+          spotifyUsername: userID,
+          description: userDescription,
+        },
+        $addToSet: {
+          topArtists: { $each: mergedArtists },
+          topGenres: { $each: topGenres },
+        },
       },
       { new: true, upsert: true }
     );
@@ -172,6 +190,96 @@ async function getTopArtists() {
   } catch (error) {
     console.error('Error getting top artists:', error.response ? error.response.data : error.message);
     throw error;
+  }
+}
+
+// Retrieve top genres from last 6 months (time_range=medium_term)
+async function getTopGenres() {
+  try {
+    // Request for top artists using the obtained access token
+    let topResponse = await axios.get("https://api.spotify.com/v1/me/top/artists", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    // Extract artist names from the response
+    let topGenres = topResponse.data.items.map(artist => artist.genres);
+
+    // Flatten the array of arrays into a single array
+    const flattenedArray = topGenres.flat();
+
+    // Create a Set to eliminate duplicates and then convert it back to an array
+    const genresArray = [...new Set(flattenedArray)];
+
+    return genresArray;
+  } catch (error) {
+    console.error('Error getting top artists:', error.response ? error.response.data : error.message);
+    throw error;
+  }
+}
+
+app.post("/findConcerts", async (req, res) => {
+  try {
+    console.log(req.body);
+    const userArtist = req.body.artist;
+    const userLocation = req.body.city;
+
+    // Ticketmaster API key
+    const apiKey = process.env.TICKETMASTER_API_KEY;
+
+    // Make a request to the Ticketmaster API
+    const response = await axios.get(`https://app.ticketmaster.com/discovery/v2/events`, {
+      params: {
+        apikey: apiKey,
+        keyword: userArtist,
+        city: userLocation,
+        classificationName: 'music', // Specify the type of events you are interested in
+      },
+    });
+
+    // Handle the response and extract relevant information
+    const concerts = response.data._embedded.events.map(event => {
+      const venues = event._embedded.venues || [];
+      const firstVenue = venues[0] || {};
+    
+      return {
+        name: event.name,
+        date: event.dates.start.localDate,
+        venue: firstVenue.name || 'Venue information not available',
+        location: firstVenue.city ? firstVenue.city.name : 'Location information not available',
+      };
+    });
+
+    console.log(concerts)
+
+    // Fetch user profiles based on the specified artist and city
+    const userProfiles = await Profile.find({
+      topArtists: userArtist,
+      city: userLocation,
+    });
+
+    // Include user profiles in the response
+    res.json({ concerts, userProfiles });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Failed to find any upcoming concerts in this area.");
+  }
+});
+
+// Create a brief description for the user based off their top artists and genres
+async function getProfileDescription(genreArray, artistArray) {
+  try {
+    const user_message = `Given the top music genres a user listens to ${genreArray}, and a list of some of their most listened to and liked musical artists ${artistArray}, can you write a short, friendly, 1 paragraph, introduction description about this user's music interests from a first person perspective for others to read and relate to. You do not need to say the user's name.`;
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: user_message },
+      ],
+    });
+    return response.choices[0].message.content;
+  } catch (err) {
+    res.send("Failed to create a description.");
   }
 }
 
