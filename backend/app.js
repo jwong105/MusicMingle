@@ -20,7 +20,7 @@ const uri = process.env.URI;
 var accessToken = "";
 
 // set up client key
-const openai = new OpenAI({apiKey:'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'});
+const openai = new OpenAI({apiKey: process.env.APIKEY});
 
 // APIS
 app.get("/", (req, res) => {
@@ -279,7 +279,7 @@ async function getProfileDescription(genreArray, artistArray) {
     });
     return response.choices[0].message.content;
   } catch (err) {
-    res.send("Failed to create a description.");
+    console.log("Failed to create a description.");
   }
 }
 
